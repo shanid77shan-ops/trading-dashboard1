@@ -86,7 +86,7 @@ export default function App() {
     }, 1800);
 
     try {
-      const res = await axios.post("https://clean-snails-share.loca.lt/signal", {
+      const res = await axios.post(" https://giant-loops-taste.loca.lt", {
         symbol: selected.symbol,
         label:  selected.label,
       });
