@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
+const API_URL = (process.env.REACT_APP_API_URL || "http://localhost:5000").trim();
+
 const SYMBOLS = {
   FOREX: [
     { label: "EUR/USD", symbol: "EURUSD=X" },
@@ -51,14 +53,27 @@ export default function App() {
   const timerRef = useRef(null);
 
   useEffect(() => {
-    // Auto reload only when signal is WAIT
     if (signal?.signal === "WAIT" && !signal._demo) {
+      // Auto-reload every 60s when signal is WAIT (live)
       setCountdown(60);
       timerRef.current = setInterval(() => {
         setCountdown(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
-            getSignal(); // auto fetch again
+            getSignal();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (signal?._demo && selected) {
+      // Auto-retry backend every 30s when offline
+      setCountdown(30);
+      timerRef.current = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            getSignal();
             return 0;
           }
           return prev - 1;
@@ -86,7 +101,7 @@ export default function App() {
     }, 1800);
 
     try {
-      const res = await axios.post(" https://giant-loops-taste.loca.lt", {
+      const res = await axios.post(API_URL, {
         symbol: selected.symbol,
         label:  selected.label,
       });
@@ -95,7 +110,7 @@ export default function App() {
       setSignal({
         signal: "WAIT", price: "—", rsi: "—", macd: "—",
         entry: "—", stop_loss: "—", take_profit: "—",
-        reason: "⚠️ Could not connect to Python backend. Make sure api.py is running on port 5000.",
+        reason: `Backend not reachable at ${API_URL}. Run api.py and set REACT_APP_API_URL in .env to point to it.`,
         confidence: "low", _demo: true,
       });
     } finally {
@@ -193,11 +208,41 @@ export default function App() {
 
             {/* Demo warning */}
             {signal._demo && (
-              <div style={{ marginBottom: 20, padding: "10px 16px", borderRadius: 10,
+              <div style={{ marginBottom: 20, borderRadius: 12,
                 background: "rgba(255,184,0,0.08)", border: "1px solid rgba(255,184,0,0.2)",
-                color: "#ffb800", fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 12, letterSpacing: "0.06em" }}>
-                ⚠️ Backend offline — run <strong>python api.py</strong> for live signals
+                overflow: "hidden" }}>
+                <div style={{ padding: "12px 16px", display: "flex", alignItems: "center",
+                  justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%",
+                      border: "2px solid rgba(255,184,0,0.3)", borderTopColor: "#ffb800",
+                      animation: "spin 1s linear infinite", flexShrink: 0 }} />
+                    <div>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 700,
+                        color: "#ffb800", letterSpacing: "0.08em" }}>
+                        BACKEND OFFLINE — retrying in {countdown}s
+                      </p>
+                      <p style={{ margin: "3px 0 0", fontSize: 11, color: "#6a7a8a",
+                        fontFamily: "'JetBrains Mono', monospace" }}>
+                        {API_URL}
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={() => { clearInterval(timerRef.current); setCountdown(0); getSignal(); }}
+                    style={{ background: "rgba(255,184,0,0.12)", border: "1px solid rgba(255,184,0,0.3)",
+                      color: "#ffb800", padding: "7px 14px", borderRadius: 8,
+                      fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                      cursor: "pointer", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
+                    ↻ Retry Now
+                  </button>
+                </div>
+                <div style={{ padding: "8px 16px 12px", borderTop: "1px solid rgba(255,184,0,0.1)",
+                  fontSize: 11, color: "#5a6a7a", fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: "0.04em" }}>
+                  Start backend: <span style={{ color: "#ffb800" }}>python api.py</span>
+                  &nbsp;&nbsp;|&nbsp;&nbsp;
+                  Set URL in <span style={{ color: "#ffb800" }}>.env</span> → REACT_APP_API_URL
+                </div>
               </div>
             )}
 
