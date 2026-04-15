@@ -103,6 +103,8 @@ export default function App() {
       const res = await axios.post(apiUrl, {
         symbol: selected.symbol,
         label:  selected.label,
+      }, {
+        headers: { "ngrok-skip-browser-warning": "true" },
       });
       setSignal({ ...res.data, _demo: false });
     } catch {
