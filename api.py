@@ -1,4 +1,4 @@
-import os, json
+import os, json, traceback
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
@@ -26,6 +26,15 @@ def macd(prices):
     ema26 = prices.ewm(span=26, adjust=False).mean()
     return round(float((ema12 - ema26).iloc[-1]), 6)
 
+@app.route("/health", methods=["GET"])
+def health():
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    return jsonify({
+        "status": "ok",
+        "api_key_set": bool(key),
+        "api_key_prefix": key[:20] + "..." if key else "NOT SET"
+    })
+
 @app.route("/", methods=["POST", "OPTIONS"])
 def signal():
     if request.method == "OPTIONS":
@@ -34,6 +43,7 @@ def signal():
     body   = request.get_json(force=True)
     symbol = body.get("symbol", "")
     label  = body.get("label", symbol)
+    print(f"[REQUEST] symbol={symbol} label={label}")
 
     # Map to yfinance symbol if needed
     yf_sym = SYMBOL_MAP.get(symbol, symbol)
@@ -45,6 +55,7 @@ def signal():
             raise ValueError("Empty data")
         close = hist["Close"]
     except Exception as e:
+        print(f"[ERROR] Data fetch: {traceback.format_exc()}")
         return jsonify({"error": f"Data fetch failed: {e}"}), 500
 
     price_val = round(float(close.iloc[-1]), 5)
@@ -84,6 +95,7 @@ Reply with ONLY a JSON object — no markdown, no explanation — using these ex
         )
         result = json.loads(msg.content[0].text)
     except Exception as e:
+        print(f"[ERROR] Claude API: {traceback.format_exc()}")
         return jsonify({"error": f"Claude API error: {e}"}), 500
 
     result["price"] = str(price_val)
