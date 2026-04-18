@@ -49,6 +49,10 @@ export default function App() {
   const [loadMsg,  setLoadMsg]  = useState("");
   const [countdown, setCountdown] = useState(0);
   const timerRef = useRef(null);
+  const getSignalRef = useRef(null);
+
+  // Keep ref in sync so the interval always calls the latest getSignal
+  getSignalRef.current = getSignal;
 
   useEffect(() => {
     // Auto reload only when signal is WAIT
@@ -58,7 +62,7 @@ export default function App() {
         setCountdown(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
-            getSignal(); // auto fetch again
+            getSignalRef.current(); // auto fetch again (always uses latest selected)
             return 0;
           }
           return prev - 1;
@@ -86,7 +90,7 @@ export default function App() {
     }, 1800);
 
     try {
-      const res = await axios.post(" https://giant-loops-taste.loca.lt", {
+      const res = await axios.post("https://giant-loops-taste.loca.lt", {
         symbol: selected.symbol,
         label:  selected.label,
       });
