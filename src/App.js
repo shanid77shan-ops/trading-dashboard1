@@ -2,6 +2,13 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
+function getStoredUrl() {
+  return (
+    localStorage.getItem("tradingApiUrl") ||
+    (process.env.REACT_APP_API_URL || "http://localhost:5000").trim()
+  );
+}
+
 const SYMBOLS = {
   FOREX: [
     { label: "EUR/USD", symbol: "EURUSD=X" },
@@ -43,11 +50,14 @@ const CW = {
 };
 
 export default function App() {
-  const [selected, setSelected] = useState(null);
-  const [loading,  setLoading]  = useState(false);
-  const [signal,   setSignal]   = useState(null);
-  const [loadMsg,  setLoadMsg]  = useState("");
-  const [countdown, setCountdown] = useState(0);
+  const [selected,     setSelected]     = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [signal,       setSignal]       = useState(null);
+  const [loadMsg,      setLoadMsg]      = useState("");
+  const [countdown,    setCountdown]    = useState(0);
+  const [apiUrl,       setApiUrl]       = useState(getStoredUrl);
+  const [showSettings, setShowSettings] = useState(false);
+  const [urlDraft,     setUrlDraft]     = useState(getStoredUrl);
   const timerRef = useRef(null);
   const getSignalRef = useRef(null);
 
@@ -55,8 +65,8 @@ export default function App() {
   getSignalRef.current = getSignal;
 
   useEffect(() => {
-    // Auto reload only when signal is WAIT
     if (signal?.signal === "WAIT" && !signal._demo) {
+      // Auto-reload every 60s when live WAIT signal
       setCountdown(60);
       timerRef.current = setInterval(() => {
         setCountdown(prev => {
@@ -68,11 +78,19 @@ export default function App() {
           return prev - 1;
         });
       }, 1000);
+    } else if (signal?._demo && selected) {
+      // Auto-retry backend every 30s when offline
+      setCountdown(30);
+      timerRef.current = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) { clearInterval(timerRef.current); getSignalRef.current(); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
     } else {
       clearInterval(timerRef.current);
       setCountdown(0);
     }
-
     return () => clearInterval(timerRef.current);
   }, [signal]);
 
@@ -90,16 +108,18 @@ export default function App() {
     }, 1800);
 
     try {
-      const res = await axios.post("https://giant-loops-taste.loca.lt", {
+      const res = await axios.post(apiUrl, {
         symbol: selected.symbol,
         label:  selected.label,
+      }, {
+        headers: { "ngrok-skip-browser-warning": "true" },
       });
       setSignal({ ...res.data, _demo: false });
     } catch {
       setSignal({
         signal: "WAIT", price: "—", rsi: "—", macd: "—",
         entry: "—", stop_loss: "—", take_profit: "—",
-        reason: "⚠️ Could not connect to Python backend. Make sure api.py is running on port 5000.",
+        reason: `Cannot reach backend at "${apiUrl}". Start api.py on your PC, run ngrok, then tap ⚙ to paste the URL.`,
         confidence: "low", _demo: true,
       });
     } finally {
@@ -108,10 +128,17 @@ export default function App() {
     }
   }
 
-  const sc  = signal ? (SC[signal.signal] || SC.WAIT) : null;
-  const cw  = signal ? (CW[signal.confidence?.toLowerCase().replace(" ", "-")] || "50%") : "0%";
-  const cc  = signal?.confidence?.toLowerCase().includes("high") ? "#00e396"
-            : signal?.confidence?.toLowerCase().includes("low")  ? "#ff4560" : "#ffb800";
+  function saveSettings() {
+    const url = urlDraft.trim().replace(/\/$/, "");
+    localStorage.setItem("tradingApiUrl", url);
+    setApiUrl(url);
+    setShowSettings(false);
+  }
+
+  const sc = signal ? (SC[signal.signal] || SC.WAIT) : null;
+  const cw = signal ? (CW[signal.confidence?.toLowerCase().replace(" ", "-")] || "50%") : "0%";
+  const cc = signal?.confidence?.toLowerCase().includes("high") ? "#00e396"
+           : signal?.confidence?.toLowerCase().includes("low")  ? "#ff4560" : "#ffb800";
 
   return (
     <div style={{ minHeight: "100vh", background: "#060d1a", color: "#e8edf2",
@@ -135,12 +162,22 @@ export default function App() {
               AI <span style={{ color: "#38bdf8" }}>Signal</span> Desk
             </h1>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8,
-            background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.2)",
-            padding: "6px 14px", borderRadius: 20 }}>
-            <div className="pulse-dot" style={{ width: 7, height: 7, borderRadius: "50%", background: "#38bdf8" }} />
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
-              color: "#38bdf8", letterSpacing: "0.12em" }}>LIVE · MT5</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Settings button */}
+            <button onClick={() => { setUrlDraft(apiUrl); setShowSettings(true); }}
+              title="Set backend URL"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                color: "#4a6080", padding: "6px 11px", borderRadius: 10, fontSize: 15,
+                cursor: "pointer", lineHeight: 1, transition: "all 0.15s" }}>
+              ⚙
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8,
+              background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.2)",
+              padding: "6px 14px", borderRadius: 20 }}>
+              <div className="pulse-dot" style={{ width: 7, height: 7, borderRadius: "50%", background: "#38bdf8" }} />
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+                color: "#38bdf8", letterSpacing: "0.12em" }}>LIVE · MT5</span>
+            </div>
           </div>
         </div>
 
@@ -195,13 +232,53 @@ export default function App() {
           <div className="animate-fade-up" style={{ background: "#0a1628",
             border: "1px solid rgba(255,255,255,0.06)", borderRadius: 20, padding: 32, marginBottom: 20 }}>
 
-            {/* Demo warning */}
+            {/* Offline banner */}
             {signal._demo && (
-              <div style={{ marginBottom: 20, padding: "10px 16px", borderRadius: 10,
+              <div style={{ marginBottom: 20, borderRadius: 12,
                 background: "rgba(255,184,0,0.08)", border: "1px solid rgba(255,184,0,0.2)",
-                color: "#ffb800", fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 12, letterSpacing: "0.06em" }}>
-                ⚠️ Backend offline — run <strong>python api.py</strong> for live signals
+                overflow: "hidden" }}>
+                <div style={{ padding: "12px 16px", display: "flex", alignItems: "center",
+                  justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+                      border: "2px solid rgba(255,184,0,0.3)", borderTopColor: "#ffb800",
+                      animation: "spin 1s linear infinite" }} />
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 700,
+                        color: "#ffb800", letterSpacing: "0.08em" }}>
+                        BACKEND OFFLINE — retrying in {countdown}s
+                      </p>
+                      <p style={{ margin: "3px 0 0", fontSize: 11, color: "#5a6a7a",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {apiUrl}
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                    <button onClick={() => { setUrlDraft(apiUrl); setShowSettings(true); }}
+                      style={{ background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.2)",
+                        color: "#38bdf8", padding: "7px 12px", borderRadius: 8,
+                        fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                        cursor: "pointer", letterSpacing: "0.04em" }}>
+                      ⚙ URL
+                    </button>
+                    <button onClick={() => { clearInterval(timerRef.current); setCountdown(0); getSignal(); }}
+                      style={{ background: "rgba(255,184,0,0.12)", border: "1px solid rgba(255,184,0,0.3)",
+                        color: "#ffb800", padding: "7px 12px", borderRadius: 8,
+                        fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                        cursor: "pointer", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                      ↻ Retry
+                    </button>
+                  </div>
+                </div>
+                <div style={{ padding: "8px 16px 12px", borderTop: "1px solid rgba(255,184,0,0.1)",
+                  fontSize: 11, color: "#4a6080", fontFamily: "'JetBrains Mono', monospace" }}>
+                  On home PC: <span style={{ color: "#ffb800" }}>python api.py</span>
+                  &nbsp;+&nbsp;
+                  <span style={{ color: "#ffb800" }}>ngrok http 5000</span>
+                  &nbsp;→ paste URL into <span style={{ color: "#38bdf8" }}>⚙</span>
+                </div>
               </div>
             )}
 
@@ -244,9 +321,9 @@ export default function App() {
             {/* Trade levels */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 14 }}>
               {[
-                { label: "Entry Zone",   value: signal.entry,       accent: "#38bdf8" },
-                { label: "Stop Loss",    value: signal.stop_loss,   accent: "#ff4560" },
-                { label: "Take Profit",  value: signal.take_profit, accent: "#00e396" },
+                { label: "Entry Zone",  value: signal.entry,       accent: "#38bdf8" },
+                { label: "Stop Loss",   value: signal.stop_loss,   accent: "#ff4560" },
+                { label: "Take Profit", value: signal.take_profit, accent: "#00e396" },
               ].map((l) => (
                 <div key={l.label} style={{ background: "#0f1f35",
                   border: `1px solid ${l.accent}30`, borderRadius: 12, padding: 18, textAlign: "center" }}>
@@ -280,26 +357,17 @@ export default function App() {
               </span>
             </div>
 
+            {/* WAIT live auto-refresh */}
             {signal.signal === "WAIT" && !signal._demo && (
               <div style={{
-                marginTop: 20,
-                padding: "14px 20px",
-                borderRadius: 12,
-                background: "rgba(255,184,0,0.06)",
-                border: "1px solid rgba(255,184,0,0.2)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
+                marginTop: 20, padding: "14px 20px", borderRadius: 12,
+                background: "rgba(255,184,0,0.06)", border: "1px solid rgba(255,184,0,0.2)",
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: "50%",
-                    border: "2px solid rgba(255,184,0,0.3)",
-                    borderTopColor: "#ffb800",
-                    animation: "spin 1s linear infinite",
-                    flexShrink: 0,
-                  }} />
+                  <div style={{ width: 32, height: 32, borderRadius: "50%",
+                    border: "2px solid rgba(255,184,0,0.3)", borderTopColor: "#ffb800",
+                    animation: "spin 1s linear infinite", flexShrink: 0 }} />
                   <div>
                     <p style={{ margin: 0, fontSize: 12, fontWeight: 700,
                       color: "#ffb800", letterSpacing: "0.1em", textTransform: "uppercase" }}>
@@ -310,25 +378,11 @@ export default function App() {
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    clearInterval(timerRef.current);
-                    setCountdown(0);
-                    getSignal();
-                  }}
-                  style={{
-                    background: "rgba(255,184,0,0.1)",
-                    border: "1px solid rgba(255,184,0,0.3)",
-                    color: "#ffb800",
-                    padding: "8px 16px",
-                    borderRadius: 8,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    letterSpacing: "0.06em",
-                    whiteSpace: "nowrap",
-                  }}
-                >
+                <button onClick={() => { clearInterval(timerRef.current); setCountdown(0); getSignal(); }}
+                  style={{ background: "rgba(255,184,0,0.1)", border: "1px solid rgba(255,184,0,0.3)",
+                    color: "#ffb800", padding: "8px 16px", borderRadius: 8,
+                    fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                    cursor: "pointer", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
                   ↻ Now
                 </button>
               </div>
@@ -350,6 +404,69 @@ export default function App() {
           ⚠️ AI signals are for informational purposes only. Not financial advice.
         </p>
       </div>
+
+      {/* ── Settings modal ── */}
+      {showSettings && (
+        <div onClick={() => setShowSettings(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 200, padding: 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "#0a1628", border: "1px solid rgba(56,189,248,0.25)",
+            borderRadius: 20, padding: 28, width: "100%", maxWidth: 460,
+          }}>
+            <h2 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 800,
+              letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              ⚙ Backend URL
+            </h2>
+            <p style={{ margin: "0 0 18px", fontSize: 12, color: "#4a6080", lineHeight: 1.7 }}>
+              Paste your ngrok / tunnel URL. Saved in this browser — works from anywhere.
+            </p>
+
+            <input
+              value={urlDraft}
+              onChange={e => setUrlDraft(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && saveSettings()}
+              placeholder="https://xxxx.ngrok-free.app"
+              autoFocus
+              style={{
+                width: "100%", boxSizing: "border-box",
+                background: "#0f1f35", border: "1px solid rgba(56,189,248,0.3)",
+                borderRadius: 10, padding: "12px 14px",
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+                color: "#e8edf2", outline: "none", marginBottom: 16,
+              }}
+            />
+
+            {/* Instructions */}
+            <div style={{ background: "#060d1a", borderRadius: 10, padding: "14px 16px",
+              marginBottom: 20, fontSize: 11, color: "#4a6080",
+              fontFamily: "'JetBrains Mono', monospace", lineHeight: 2 }}>
+              <span style={{ color: "#38bdf8", fontWeight: 700 }}>On your home PC:</span><br/>
+              1&nbsp; <span style={{ color: "#e8edf2" }}>python api.py</span><br/>
+              2&nbsp; <span style={{ color: "#e8edf2" }}>ngrok http 5000</span><br/>
+              3&nbsp; Copy the <span style={{ color: "#ffb800" }}>https://xxxx.ngrok-free.app</span> URL<br/>
+              4&nbsp; Paste above &amp; tap <span style={{ color: "#38bdf8" }}>Save</span>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowSettings(false)}
+                style={{ flex: 1, padding: "12px", borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.08)", background: "transparent",
+                  color: "#4a6080", fontSize: 13, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={saveSettings}
+                style={{ flex: 2, padding: "12px", borderRadius: 10, border: "none",
+                  background: "#38bdf8", color: "#060d1a", fontSize: 14,
+                  fontWeight: 800, cursor: "pointer", letterSpacing: "0.08em" }}>
+                Save & Connect
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
