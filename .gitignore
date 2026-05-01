@@ -25,3 +25,5 @@ yarn-error.log*
 
 # Claude AI agent worktrees
 .claude/
+
+.claude/
