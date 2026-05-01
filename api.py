@@ -3,6 +3,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yfinance as yf
 import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # allow requests from GitHub Pages + ngrok
@@ -27,6 +30,7 @@ def macd(prices):
     return round(float((ema12 - ema26).iloc[-1]), 6)
 
 @app.route("/", methods=["POST", "OPTIONS"])
+@app.route("/signal", methods=["POST", "OPTIONS"])
 def signal():
     if request.method == "OPTIONS":
         return jsonify({}), 200
